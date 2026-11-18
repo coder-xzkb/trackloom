@@ -25,7 +25,7 @@ export async function withRetry<T>(
       await new Promise((r) => setTimeout(r, delay + jitter))
 
       console.warn(
-        `[TuneNest] Retry ${attempt + 1}/${maxRetries}: ${lastError.message}`
+        `[Trackloom] Retry ${attempt + 1}/${maxRetries}: ${lastError.message}`
       )
     }
   }

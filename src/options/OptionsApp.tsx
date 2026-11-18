@@ -1,163 +1,142 @@
 import { useEffect, useState } from 'react'
-import type { Settings } from '@/types'
-import { DEFAULT_SETTINGS } from '@/types'
+import type { FormEvent } from 'react'
+import { AI_PROVIDERS } from '@/types'
+import type { AIProvider, AISettingsInput, AISettingsView, ExtensionResponse } from '@/types'
 
-export function OptionsApp() {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
-  const [saved, setSaved] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<string | null>(null)
+const fieldClass = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800'
+
+async function settingsMessage<T>(action: 'GET_AI_SETTINGS' | 'SAVE_AI_SETTINGS' | 'TEST_AI_CONNECTION', data?: AISettingsInput): Promise<T> {
+  const response: ExtensionResponse<T> = await chrome.runtime.sendMessage({ action, data })
+  if (!response?.success) throw new Error(response?.error || '无法连接到扩展后台，请刷新页面后重试。')
+  return response.data as T
+}
+
+export function OptionsApp({ embedded = false }: { embedded?: boolean }) {
+  const [draft, setDraft] = useState<AISettingsView | null>(null)
+  const [initial, setInitial] = useState<AISettingsView | null>(null)
+  const [apiKey, setApiKey] = useState('')
+  const [removeSavedKey, setRemoveSavedKey] = useState(false)
+  const [pending, setPending] = useState<'save' | 'test' | null>(null)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
-    chrome.storage.sync.get('settings', (result) => {
-      if (result.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...result.settings })
-      }
-    })
+    settingsMessage<AISettingsView>('GET_AI_SETTINGS').then((view) => {
+      setInitial(view)
+      setDraft(view)
+    }).catch((error: Error) => setFeedback({ ok: false, text: error.message }))
   }, [])
 
-  const save = () => {
-    chrome.storage.sync.set({ settings }, () => {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    })
+  const hasSavedKey = Boolean(initial?.hasApiKey && initial.ai.provider === draft?.ai.provider
+    && initial.ai.baseUrl === draft.ai.baseUrl && !removeSavedKey)
+
+  const update = (next: AISettingsView) => {
+    setFeedback(null)
+    setDraft(next)
   }
 
-  const testConnection = async () => {
-    setTesting(true)
-    setTestResult(null)
+  const submit = async (kind: 'save' | 'test') => {
+    if (!draft) return
+    setPending(kind)
+    setFeedback(null)
+    const data: AISettingsInput = { ...draft, ai: { ...draft.ai, apiKey }, keepApiKey: hasSavedKey }
     try {
-      const res = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.deepseekApiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: 'Hi' }],
-          max_tokens: 5,
-        }),
-      })
-      if (res.ok) {
-        setTestResult('✓ 连接成功')
+      if (kind === 'test') {
+        await settingsMessage('TEST_AI_CONNECTION', data)
+        setFeedback({ ok: true, text: '连接成功。' })
       } else {
-        const err = await res.text()
-        setTestResult(`✗ 失败: ${res.status} ${err.slice(0, 100)}`)
+        const saved = await settingsMessage<AISettingsView>('SAVE_AI_SETTINGS', data)
+        setInitial(saved)
+        setDraft(saved)
+        setApiKey('')
+        setRemoveSavedKey(false)
+        setFeedback({ ok: true, text: '设置已保存。' })
       }
-    } catch (err) {
-      setTestResult(`✗ 网络错误: ${err instanceof Error ? err.message : '未知'}`)
+    } catch (error) {
+      setFeedback({ ok: false, text: error instanceof Error ? error.message : '操作失败，请重试。' })
     } finally {
-      setTesting(false)
+      setPending(null)
     }
   }
 
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    void submit('save')
+  }
+
   return (
-    <div className="max-w-lg mx-auto py-10 px-6">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">TuneNest 设置</h1>
-
-      <div className="space-y-6">
-        {/* DeepSeek API Key */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            DeepSeek API Key
-          </label>
-          <input
-            type="password"
-            value={settings.deepseekApiKey}
-            onChange={(e) => setSettings({ ...settings, deepseekApiKey: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            placeholder="sk-..."
-          />
-          <div className="flex items-center gap-2 mt-2">
-            <button
-              className="text-sm text-primary hover:underline"
-              onClick={testConnection}
-              disabled={testing || !settings.deepseekApiKey}
-            >
-              {testing ? '测试中...' : '测试连通性'}
-            </button>
-            {testResult && (
-              <span className={`text-xs ${testResult.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>
-                {testResult}
-              </span>
+    <div className={embedded ? 'border-t border-gray-200 px-4 py-4' : 'max-w-lg mx-auto my-10 px-6'}>
+      {!embedded && <h1 className="text-2xl font-bold text-gray-800 mb-5">拾曲 Trackloom 设置</h1>}
+      {draft ? (
+        <form onSubmit={onSubmit} autoComplete="off">
+          <fieldset className="space-y-4 disabled:opacity-70" disabled={pending !== null}>
+            <p className="text-xs text-gray-600 leading-relaxed">未配置 API Key 时按本地规则分类，无法确定的歌曲进入人工确认池。</p>
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+              <input type="checkbox" className="w-4 h-4 accent-primary" checked={draft.enableAI} onChange={(e) => update({ ...draft, enableAI: e.target.checked })} />
+              使用 AI 辅助分类
+            </label>
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">服务商</span>
+              <select className={fieldClass} value={draft.ai.provider} onChange={(e) => {
+                const provider = e.target.value as AIProvider
+                const { baseUrl, model } = AI_PROVIDERS[provider]
+                setApiKey('')
+                setRemoveSavedKey(false)
+                update({ ...draft, ai: { provider, model, baseUrl } })
+              }}>
+                {Object.entries(AI_PROVIDERS).map(([value, info]) => <option key={value} value={value}>{info.label}</option>)}
+              </select>
+            </label>
+            {draft.ai.provider === 'custom' && (
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-1">API 地址</span>
+                <input className={fieldClass} required type="url" placeholder="https://example.com/v1" value={draft.ai.baseUrl}
+                  onChange={(e) => update({ ...draft, ai: { ...draft.ai, baseUrl: e.target.value } })} />
+                <span className="block mt-1 text-xs text-gray-500">填写 Base URL 或完整的 /chat/completions 地址。</span>
+              </label>
             )}
-          </div>
-
-          <details className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg p-3 border border-gray-100">
-            <summary className="cursor-pointer font-medium text-gray-600 select-none">
-              如何获取 DeepSeek API Key？
-            </summary>
-            <ol className="mt-2 space-y-1.5 list-decimal list-inside leading-relaxed">
-              <li>
-                打开{' '}
-                <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                  platform.deepseek.com
-                </a>
-                {' '}并注册/登录
-              </li>
-              <li>进入控制台，点击左侧「API Keys」菜单</li>
-              <li>点击「创建 API Key」，复制生成的密钥（以 sk- 开头）</li>
-              <li>回到此页面粘贴到上方输入框，点击保存</li>
-            </ol>
-            <p className="mt-2 text-gray-400">
-              新注册用户有免费额度，日常分类消耗极少（约几分钱/千首歌）。
-              不配置 API Key 也可以使用，仅用规则分类（准确度稍低）。
-            </p>
-          </details>
-        </div>
-
-        {/* 启用 AI */}
-        <div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.enableAI}
-              onChange={(e) => setSettings({ ...settings, enableAI: e.target.checked })}
-              className="w-4 h-4 accent-primary"
-            />
-            <span className="text-sm text-gray-700">启用 AI 分类（规则无法判定时使用）</span>
-          </label>
-        </div>
-
-        {/* 批量大小 */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            AI 批量大小（每次发送歌曲数）
-          </label>
-          <input
-            type="number"
-            min={5}
-            max={50}
-            value={settings.batchSize}
-            onChange={(e) => setSettings({ ...settings, batchSize: Number(e.target.value) })}
-            className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-        </div>
-
-        {/* 请求延迟 */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            请求间隔 (ms)
-          </label>
-          <input
-            type="number"
-            min={200}
-            max={3000}
-            step={100}
-            value={settings.requestDelay}
-            onChange={(e) => setSettings({ ...settings, requestDelay: Number(e.target.value) })}
-            className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-          <p className="text-xs text-gray-400 mt-1">避免请求过快被网易云限流</p>
-        </div>
-
-        {/* 保存 */}
-        <button className="tn-btn tn-btn-primary" onClick={save}>
-          保存设置
-        </button>
-        {saved && <span className="text-sm text-green-600 ml-3">已保存</span>}
-      </div>
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">模型</span>
+              <input className={fieldClass} required value={draft.ai.model} onChange={(e) => update({ ...draft, ai: { ...draft.ai, model: e.target.value } })} />
+            </label>
+            <div>
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-1">API Key</span>
+                <input className={fieldClass} type="password" value={apiKey} autoComplete="off"
+                  placeholder={hasSavedKey ? '已保存，留空将继续使用' : '可留空，仅用本地规则'}
+                  onChange={(e) => { setApiKey(e.target.value); setFeedback(null) }} />
+              </label>
+              {initial?.hasApiKey && initial.ai.provider === draft.ai.provider && initial.ai.baseUrl === draft.ai.baseUrl && !apiKey && (
+                <button type="button" className="mt-2 text-xs text-primary hover:underline" onClick={() => {
+                  setRemoveSavedKey(!removeSavedKey)
+                  setFeedback(null)
+                }}>
+                  {removeSavedKey ? '撤销清除' : '清除已保存的 API Key'}
+                </button>
+              )}
+            </div>
+            {!embedded && (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-1">每批歌曲数</span>
+                  <input className={fieldClass} type="number" min={1} max={50} value={draft.batchSize}
+                    onChange={(e) => update({ ...draft, batchSize: Number(e.target.value) })} />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-1">请求间隔（毫秒）</span>
+                  <input className={fieldClass} type="number" min={0} max={3000} value={draft.requestDelay}
+                    onChange={(e) => update({ ...draft, requestDelay: Number(e.target.value) })} />
+                </label>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="tn-btn tn-btn-primary">{pending === 'save' ? '正在保存…' : '保存设置'}</button>
+              <button type="button" className="tn-btn tn-btn-secondary" disabled={!apiKey.trim() && !hasSavedKey}
+                onClick={() => void submit('test')}>{pending === 'test' ? '正在测试…' : '测试连接'}</button>
+            </div>
+          </fieldset>
+        </form>
+      ) : !feedback && <p className="text-sm text-gray-600" role="status">正在读取设置…</p>}
+      {feedback && <p role="status" className={`text-xs mt-3 ${feedback.ok ? 'text-green-700' : 'text-red-700'}`}>{feedback.text}</p>}
     </div>
   )
 }

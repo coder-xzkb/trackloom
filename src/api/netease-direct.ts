@@ -1,4 +1,6 @@
 import type { Playlist, Song, Artist, Album } from '@/types'
+import type { NeteasePlaylistResponse, NeteaseSongResponse } from './song-metadata.ts'
+import { completePlaylistSongs, mapNeteaseSongs } from './song-metadata.ts'
 
 const BASE_URL = 'https://music.163.com'
 
@@ -32,20 +34,21 @@ async function req<T>(
 
   const res = await fetch(url.toString(), opts)
   if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`)
-  return res.json()
+  const data = await res.json()
+  if (typeof data?.code === 'number' && data.code !== 200) {
+    throw new Error(data.message || data.msg || `网易云接口返回错误：${data.code}`)
+  }
+  return data
 }
 
 export async function getLoginStatusDirect(): Promise<{ userId: number; nickname: string } | null> {
   try {
-    console.info('[TuneNest] checking login, cookie:', document.cookie.substring(0, 100))
     const res = await req<Record<string, unknown>>('/api/w/nuser/account/get')
-    console.info('[TuneNest] login API response:', JSON.stringify(res).substring(0, 500))
     // 尝试多种响应格式
     const profile = (res as any)?.data?.profile || (res as any)?.profile || null
-    console.info('[TuneNest] parsed profile:', profile)
     return profile
   } catch (err) {
-    console.error('[TuneNest] login check error:', err)
+    console.error('[Trackloom] login check error:', err)
     return null
   }
 }
@@ -59,57 +62,14 @@ export async function getUserPlaylistsDirect(uid: number): Promise<Playlist[]> {
 }
 
 export async function getPlaylistDetailDirect(id: number): Promise<Song[]> {
-  const res = await req<{
-    playlist?: {
-      trackIds?: Array<{ id: number }>
-      tracks?: Array<{
-        id: number; name: string
-        ar: Array<{ id: number; name: string }>
-        al: { id: number; name: string; publishTime?: number }
-        dt: number
-      }>
-    }
-  }>('/api/v6/playlist/detail', { id, n: 100000 })
-
-  const tracks = res.playlist?.tracks || []
-
-  if (tracks.length === 0 && (res.playlist?.trackIds?.length ?? 0) > 0) {
-    const ids = res.playlist!.trackIds!.map((t) => t.id)
-    const batched: Song[] = []
-    for (let i = 0; i < ids.length; i += 1000) {
-      const part = await getSongDetailsDirect(ids.slice(i, i + 1000))
-      batched.push(...part)
-      if (i + 1000 < ids.length) await new Promise((r) => setTimeout(r, 500))
-    }
-    return batched
-  }
-
-  return tracks.map((t) => ({
-    id: t.id,
-    name: t.name,
-    artists: t.ar.map((a): Artist => ({ id: a.id, name: a.name })),
-    album: { id: t.al.id, name: t.al.name, publishTime: t.al.publishTime } as Album,
-    duration: t.dt,
-  }))
+  const res = await req<NeteasePlaylistResponse>('/api/v6/playlist/detail', { id, n: 100000 })
+  return completePlaylistSongs(res, getSongDetailsDirect)
 }
 
 export async function getSongDetailsDirect(ids: number[]): Promise<Song[]> {
   const c = JSON.stringify(ids.map((id) => ({ id })))
-  const res = await req<{
-    songs?: Array<{
-      id: number; name: string
-      ar: Array<{ id: number; name: string }>
-      al: { id: number; name: string; publishTime?: number }
-      dt: number
-    }>
-  }>('/api/v3/song/detail', { c })
-  return (res.songs || []).map((t) => ({
-    id: t.id,
-    name: t.name,
-    artists: t.ar.map((a): Artist => ({ id: a.id, name: a.name })),
-    album: { id: t.al.id, name: t.al.name, publishTime: t.al.publishTime } as Album,
-    duration: t.dt,
-  }))
+  const res = await req<NeteaseSongResponse>('/api/v3/song/detail', { c })
+  return mapNeteaseSongs(res)
 }
 
 export async function createPlaylistDirect(name: string): Promise<number> {
@@ -117,7 +77,6 @@ export async function createPlaylistDirect(name: string): Promise<number> {
     '/api/playlist/create',
     { name, privacy: 0, type: 'NORMAL' }
   )
-  console.info('[TuneNest] createPlaylist response:', JSON.stringify(res).substring(0, 300))
   const pid = res.id || res.playlist?.id
   if (!pid) {
     throw new Error(`创建歌单失败: ${res.code || res.message || JSON.stringify(res).substring(0, 100)}`)
@@ -151,7 +110,8 @@ export async function getPlaylistTrackIds(pid: number): Promise<number[]> {
   const res = await req<{
     playlist?: { trackIds?: Array<{ id: number }> }
   }>('/api/v6/playlist/detail', { id: pid, n: 0 })
-  return res.playlist?.trackIds?.map((t) => t.id) || []
+  if (!res.playlist?.trackIds) throw new Error('无法读取目标歌单的歌曲列表，已停止写入')
+  return res.playlist.trackIds.map((track) => track.id)
 }
 
 export async function addSongsToPlaylistDirect(pid: number, trackIds: number[]): Promise<void> {

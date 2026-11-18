@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "TuneNest - 智能歌单分类",
+  "name": "拾曲 Trackloom - 网易云歌单整理",
+  "short_name": "拾曲 Trackloom",
   "version": "0.1.0",
-  "description": "自动分类网易云音乐收藏歌单，按情绪、语种、地区、年代、风格创建新歌单",
+  "description": "按实际演唱语种、歌曲类别或两者组合整理网易云音乐歌单",
   "permissions": [
     "cookies",
     "storage"
@@ -12,6 +13,11 @@
     "https://music.163.com/*",
     "https://interface.music.163.com/*",
     "https://api.deepseek.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "src/background/index.ts",
@@ -36,7 +42,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["public/icons/*"],
+      "resources": ["public/icons/*", "src/options/index.html"],
       "matches": ["http://music.163.com/*", "https://music.163.com/*"]
     }
   ]

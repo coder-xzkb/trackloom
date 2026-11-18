@@ -1,4 +1,6 @@
-import type { Playlist, Song, Artist, Album } from '@/types'
+import type { Playlist, Song } from '@/types'
+import type { NeteasePrivilege } from './song-metadata.ts'
+import { completePlaylistSongs, mapNeteaseSongs } from './song-metadata.ts'
 
 const BASE_URL = 'https://music.163.com'
 
@@ -85,6 +87,7 @@ export async function getUserPlaylists(uid: number): Promise<Playlist[]> {
 // ===== 歌单详情 =====
 
 interface PlaylistDetailResponse {
+  privileges?: NeteasePrivilege[]
   playlist: {
     trackIds: Array<{ id: number }>
     tracks: Array<{
@@ -103,37 +106,13 @@ export async function getPlaylistDetail(id: number): Promise<Song[]> {
     { id, n: 100000 }
   )
 
-  let tracks = res.playlist?.tracks || []
-
-  // 歌单超过 1000 首时 tracks 为空，需用 trackIds 批量获取
-  if (tracks.length === 0 && res.playlist?.trackIds?.length > 0) {
-    const ids = res.playlist.trackIds.map((t) => t.id)
-    const BATCH = 1000
-    const batched: Song[] = []
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const part = await getSongDetails(ids.slice(i, i + BATCH))
-      batched.push(...part)
-      if (i + BATCH < ids.length) await delay(500)
-    }
-    return batched
-  }
-
-  return tracks.map((t) => ({
-    id: t.id,
-    name: t.name,
-    artists: t.ar.map((a): Artist => ({ id: a.id, name: a.name })),
-    album: {
-      id: t.al.id,
-      name: t.al.name,
-      publishTime: t.al.publishTime,
-    } as Album,
-    duration: t.dt,
-  }))
+  return completePlaylistSongs(res, getSongDetails)
 }
 
 // ===== 批量获取歌曲详情 =====
 
 interface SongDetailResponse {
+  privileges?: NeteasePrivilege[]
   songs: Array<{
     id: number
     name: string
@@ -149,17 +128,7 @@ export async function getSongDetails(ids: number[]): Promise<Song[]> {
     '/api/v3/song/detail',
     { c }
   )
-  return (res.songs || []).map((t) => ({
-    id: t.id,
-    name: t.name,
-    artists: t.ar.map((a): Artist => ({ id: a.id, name: a.name })),
-    album: {
-      id: t.al.id,
-      name: t.al.name,
-      publishTime: t.al.publishTime,
-    } as Album,
-    duration: t.dt,
-  }))
+  return mapNeteaseSongs(res)
 }
 
 // ===== 创建歌单 =====

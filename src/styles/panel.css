@@ -8,44 +8,39 @@
 }
 
 .tn-fab {
-  @apply fixed z-[999999] bottom-24 right-6 w-12 h-12 rounded-full bg-primary text-white
-         flex items-center justify-center cursor-pointer shadow-lg
-         hover:bg-primary-dark transition-all duration-200 select-none;
+  @apply w-[52px] h-[52px] rounded-2xl bg-primary text-white flex items-center justify-center
+         cursor-pointer shadow-lg hover:bg-primary-dark transition-colors duration-150 select-none;
 }
 
 .tn-fab-wrap {
-  @apply fixed z-[999999] bottom-24 right-6;
-}
-
-.tn-fab-wrap .tn-fab {
-  @apply static;
+  @apply fixed z-[999997] bottom-24 left-6 pointer-events-auto;
 }
 
 .tn-login-hint {
-  @apply absolute right-0 bottom-16 whitespace-nowrap bg-white text-gray-700
-         text-xs px-3 py-2 rounded-lg shadow-lg border border-gray-100;
+  @apply absolute left-0 bottom-16 whitespace-nowrap bg-white text-gray-700
+         text-xs px-3 py-2 rounded-lg shadow-lg border border-gray-200;
 }
 
 .tn-login-hint::after {
   content: '';
   position: absolute;
-  right: 18px;
+  left: 18px;
   bottom: -6px;
   width: 12px;
   height: 12px;
   background: white;
-  border-right: 1px solid #f3f4f6;
-  border-bottom: 1px solid #f3f4f6;
+  border-right: 1px solid #dce7f7;
+  border-bottom: 1px solid #dce7f7;
   transform: rotate(45deg);
 }
 
 .tn-panel {
-  @apply fixed z-[999998] top-0 right-0 h-full w-[420px] bg-white shadow-2xl
+  @apply fixed z-[999998] top-0 right-0 h-full w-full max-w-[420px] flex flex-col bg-white shadow-2xl
          transform transition-transform duration-300 ease-in-out;
 }
 
 .tn-panel.closed {
-  @apply translate-x-full pointer-events-none;
+  @apply translate-x-full pointer-events-none invisible;
 }
 
 .tn-panel.open {
@@ -53,7 +48,7 @@
 }
 
 .tn-panel-header {
-  @apply flex items-center justify-between px-5 py-4 border-b border-gray-100;
+  @apply flex shrink-0 items-center justify-between px-5 py-4 border-b border-gray-200 bg-primary-soft;
 }
 
 .tn-panel-header h2 {
@@ -61,12 +56,19 @@
 }
 
 .tn-panel-body {
-  @apply p-5 overflow-y-auto;
-  height: calc(100% - 64px);
+  @apply p-5 flex-1 min-h-0 overflow-y-auto bg-gray-50;
 }
 
 .tn-btn {
-  @apply px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 cursor-pointer;
+  @apply min-h-10 px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-150 cursor-pointer;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  @apply outline outline-2 outline-offset-2 outline-primary;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tn-panel { transition: none; }
 }
 
 .tn-btn-primary {
@@ -75,6 +77,10 @@
 
 .tn-btn-secondary {
   @apply bg-gray-100 text-gray-700 hover:bg-gray-200;
+}
+
+.tn-btn:disabled {
+  @apply opacity-50 cursor-not-allowed;
 }
 
 .tn-checkbox-item {

@@ -1,8 +1,14 @@
 node_modules/
+.npm-cache/
 dist/
 *.local
 .DS_Store
 tune-nest-v*.zip
+trackloom-v*.zip
 exprot.py
 *_accounts.txt
 .idea/
+.env
+.env.*
+*.pem
+*.log

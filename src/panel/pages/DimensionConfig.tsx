@@ -4,13 +4,15 @@ import { DIMENSION_META } from '@/types'
 interface Props {
   selection: DimensionSelection
   onChange: (sel: DimensionSelection) => void
+  combineDimensions: boolean
+  onCombineChange: (combine: boolean) => void
   onConfirm: () => void
   onBack: () => void
 }
 
-const ALL_DIMS: ClassifyDimension[] = ['mood', 'language', 'region', 'era', 'genre']
+const ALL_DIMS: ClassifyDimension[] = ['language', 'genre']
 
-export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Props) {
+export function DimensionConfig({ selection, onChange, combineDimensions, onCombineChange, onConfirm, onBack }: Props) {
   const isDimActive = (dim: ClassifyDimension) => dim in selection
 
   const toggleDimension = (dim: ClassifyDimension) => {
@@ -18,6 +20,7 @@ export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Prop
       const next = { ...selection }
       delete next[dim]
       onChange(next)
+      onCombineChange(false)
     } else {
       onChange({ ...selection, [dim]: [...DIMENSION_META[dim].categories] })
     }
@@ -32,6 +35,7 @@ export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Prop
       const rest = { ...selection }
       delete rest[dim]
       onChange(rest)
+      onCombineChange(false)
     } else {
       onChange({ ...selection, [dim]: next })
     }
@@ -54,7 +58,7 @@ export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Prop
           const cats = (selection[dim] || []).filter((c) => meta.categories.includes(c))
 
           return (
-            <div key={dim} className={`rounded-lg border transition-colors ${active ? 'border-primary/40 bg-red-50/30' : 'border-gray-200'}`}>
+            <div key={dim} className={`rounded-lg border transition-colors ${active ? 'border-primary/40 bg-primary-soft/50' : 'border-gray-200'}`}>
               <label className="flex items-center gap-3 p-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -114,6 +118,24 @@ export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Prop
         })}
       </div>
 
+      <div className="mt-4 p-3 rounded-lg border border-gray-200">
+        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={combineDimensions}
+            disabled={!selection.language?.length || !selection.genre?.length}
+            onChange={(event) => onCombineChange(event.target.checked)}
+            className="w-4 h-4 accent-primary"
+          />
+          按「语种 × 歌曲类别」组合分类
+        </label>
+        <p className="text-xs text-gray-400 mt-2">
+          {combineDimensions
+            ? '创建「日语 · 摇滚」「英语 · R&B」等组合歌单；两项都确定后才会归入。'
+            : '分别创建语种歌单和类别歌单。勾选两种维度后可开启组合分类。'}
+        </p>
+      </div>
+
       <div className="flex gap-3 mt-6">
         <button className="tn-btn tn-btn-secondary flex-1" onClick={onBack}>
           上一步
@@ -123,7 +145,7 @@ export function DimensionConfig({ selection, onChange, onConfirm, onBack }: Prop
           disabled={!hasAnySelected}
           onClick={onConfirm}
         >
-          开始分类
+          选择要整理的曲目
         </button>
       </div>
     </div>

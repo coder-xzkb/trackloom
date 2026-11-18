@@ -1,5 +1,4 @@
-import type { ExtensionMessage, ExtensionResponse, Settings } from '@/types'
-import { DEFAULT_SETTINGS } from '@/types'
+import type { AISettingsInput, ExtensionMessage, ExtensionResponse } from '@/types'
 import {
   getLoginStatus,
   getUserPlaylists,
@@ -8,7 +7,12 @@ import {
   createPlaylist,
   addSongsToPlaylist,
 } from '@/api/netease'
-import { classifySongs, groupByDimension } from '@/classifier'
+import { classifySongs, groupClassifications } from '@/classifier'
+import { ClassificationJobs } from '@/utils/classification-jobs'
+import { configureAI, getSettings, toSettingsView } from '@/utils/ai-settings'
+
+const classificationJobs = new ClassificationJobs()
+const ownerKey = (sender?: chrome.runtime.MessageSender) => `${sender?.tab?.id ?? 'extension'}:${sender?.frameId ?? 0}`
 
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, sender, sendResponse: (r: ExtensionResponse) => void) => {
@@ -21,6 +25,18 @@ chrome.runtime.onMessage.addListener(
 
 async function handleMessage(message: ExtensionMessage, sender?: chrome.runtime.MessageSender): Promise<unknown> {
   switch (message.action) {
+    case 'OPEN_OPTIONS':
+      await chrome.runtime.openOptionsPage()
+      return null
+
+    case 'GET_AI_SETTINGS':
+      return toSettingsView(await getSettings())
+
+    case 'SAVE_AI_SETTINGS':
+    case 'TEST_AI_CONNECTION':
+      if (!sender?.url?.startsWith(chrome.runtime.getURL(''))) throw new Error('请在插件的 AI 服务设置中操作。')
+      return configureAI(message.data as AISettingsInput, message.action === 'TEST_AI_CONNECTION')
+
     case 'GET_LOGIN_STATUS':
       return getLoginStatus()
 
@@ -51,29 +67,32 @@ async function handleMessage(message: ExtensionMessage, sender?: chrome.runtime.
     }
 
     case 'CLASSIFY_SONGS': {
-      const { songs, dimensionSelection } = message.data as {
+      const { songs, dimensionSelection, combineDimensions, requestId = crypto.randomUUID() } = message.data as {
         songs: Parameters<typeof classifySongs>[0]
         dimensionSelection: Parameters<typeof classifySongs>[2]
+        combineDimensions?: boolean
+        requestId?: string
       }
       const tabId = sender?.tab?.id
-      const settings = await getSettings()
       const sendProgress = (p: import('@/classifier').ClassifyProgress) => {
         if (tabId) {
-          chrome.tabs.sendMessage(tabId, { action: 'CLASSIFY_PROGRESS', data: p }).catch(() => {})
+          chrome.tabs.sendMessage(tabId, { action: 'CLASSIFY_PROGRESS', data: { ...p, requestId } }).catch(() => {})
         }
       }
-      const results = await classifySongs(songs, settings, dimensionSelection, sendProgress)
-      const dims = Object.keys(dimensionSelection) as import('@/types').ClassifyDimension[]
-      const grouped = dims.map((dim) => groupByDimension(results, dim))
-      return { results, grouped: grouped.flat() }
+      const results = await classificationJobs.run(ownerKey(sender), requestId, async (signal) => {
+        const settings = await getSettings()
+        return classifySongs(songs, settings, dimensionSelection, sendProgress, signal)
+      })
+      const grouped = groupClassifications(results, dimensionSelection, combineDimensions)
+      return { results, grouped }
+    }
+
+    case 'CANCEL_CLASSIFICATION': {
+      const { requestId } = message.data as { requestId: string }
+      return { cancelled: classificationJobs.cancel(ownerKey(sender), requestId) }
     }
 
     default:
       throw new Error(`Unknown action: ${message.action}`)
   }
-}
-
-async function getSettings(): Promise<Settings> {
-  const stored = await chrome.storage.sync.get('settings')
-  return { ...DEFAULT_SETTINGS, ...stored.settings }
 }
